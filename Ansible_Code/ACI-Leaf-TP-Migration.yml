@@ -1,0 +1,82 @@
+---
+# ACI Tenant Static Port Copy. This playbook will input a source leaf (or comma
+# seperated pair) as well as a destination leaf (or comma seperated pair)
+# the code will then proceed to iterate through all tenants and EPGs evaluating
+# all the static binding path information. When static path infomration is found
+# with the source nodes it is mutated and created with the same path data for the
+# new desintation nodes. data is copied 1:1.
+#
+# Example Execution of this playbook:
+# ansible-playbook -i "10.94.164.69," ACI-Leaf-TP-Migration.yml --extra-vars '{"runtime_user":"aciuser,"runtime_pass":"acipass","runtime_source":"105,106","runtime_dest":"1105,1106"}'
+# ^^^^^ Tested with Ansible v2.11.4
+#
+# FOLLOWING ARE DEPENDENCIES TO RUN THE PLAYBOOK
+# NEED ansible-galaxy collection install cisco.aci
+# NEED to install jmespath (pip3) note the python3 interpreter in global vars
+#
+# __author__ = "Joshua Proano"
+# __version__ = "0.21"
+# __date__ = "2021-9-14"
+# __email__ = "jproano@cisco.com"
+# __status__ = "Alpha"
+# Note: Use at your own risk! Use with a SIM before the real thing. Take
+# snapshots and validate desired behavior.
+
+
+- name: Leaf Tenant Data Migration
+  # Look for hosts in the [aci] container of the inventory file
+  hosts: all
+  # Use the local Ansible system
+  connection: local
+  # Dont bother with fact computation about remote entities wont need that for the simple plays being run
+  gather_facts: no
+
+  # Use Username and privatekey provided at runtime combined with the hostname list to run in the task
+  # there are alot of ways to pass username and password creds and hosts.
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    aci_username: "{{ runtime_user }}" # ACI Username
+    aci_password: "{{ runtime_pass }}" # ACI Password
+    aci_host: "{{ inventory_hostname }}"
+    aci_source_leaf: "{{ runtime_source }}" # Source Nodes Ex. "101" or "103,104"
+    aci_dest_leaf: "{{ runtime_dest }}" # Destination Nodes Ex. "1101" or "1103,1104" should match the qty of source nodes
+    aci_source_leaf_list: ""
+    aci_dest_leaf_list: ""
+    aci_migration_type: "invalid"
+    nodequery: ""
+
+  # Showing in a single rest call how several of the tenant, VRF and underlying network elements can all be created at once.
+  tasks:
+   - name: Pre-Run Checks
+     block:
+       # Checking to be sure there is a 1:1 source, destination leaf ID.
+       - name: Source / Dest Leaf Logic Check
+         set_fact:
+          aci_source_leaf_list: "{{ aci_source_leaf.split(',') }}"
+          aci_dest_leaf_list: "{{ aci_dest_leaf.split(',') }}"
+
+       - name: Single Leaf source to single destination (no VPC)
+         set_fact:
+           aci_migration_type: "single_node"
+         when: (aci_source_leaf_list|length == 1) and (aci_dest_leaf_list|length == 1)
+
+       - name: Multiple leaf source to multiple leaf destination (VPC)
+         set_fact:
+           aci_migration_type: "vpc_pair"
+         when: (aci_source_leaf_list|length == 2) and (aci_dest_leaf_list|length == 2)
+
+   - block:
+      - name: "Invalid Input Check"
+        debug:
+          msg: "No valid node combinations to migrate, ending play"
+
+      - meta: end_play
+     when: aci_migration_type == "invalid"
+
+   - name: Single Leaf source to single destination (no VPC)
+     include_tasks: ACI-Leaf-TP-Single.yml
+     when: aci_migration_type == "single_node"
+
+   - name: Multiple leaf source to multiple leaf destination (VPC)
+     include_tasks: ACI-Leaf-TP-VPC.yml
+     when: aci_migration_type == "vpc_pair"

@@ -1,0 +1,248 @@
+---
+- name: "VPC Node Pair Migration Fabric Policies"
+  debug:
+    msg: "VPC Leaf Pair Migration"
+
+- name: "Gather Fabric Nodes"
+  cisco.aci.aci_fabric_node:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    state: query
+  delegate_to: localhost
+  register: fabric_node_query_result
+
+- name: "Parse Registered NodeId's"
+  set_fact: nodequery="{{ fabric_node_query_result |  json_query(\"current[*].fabricNodeIdentP.attributes.nodeId\")}}"
+
+- name: END PLAY if Source Nodes are not Defined in the Fabric
+  meta: end_play
+  when: (aci_source_leaf_list[0] not in nodequery) or (aci_source_leaf_list[1] not in nodequery)
+
+- name: END PLAY if Destination Nodes are not Defined in the Fabric
+  meta: end_play
+  when: (aci_dest_leaf_list[0] not in nodequery) or (aci_dest_leaf_list[1] not in nodequery)
+
+- name: "Query VPC Protection Groups"
+  cisco.aci.aci_switch_policy_vpc_protection_group:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    state: query
+  delegate_to: localhost
+  register: vpc_query_result
+
+- name: "Parse Current VPC Domains"
+  set_fact: vpc_domains="{{ vpc_query_result |  json_query(\"current[*].fabricExplicitGEp.attributes.id\")}}"
+
+- name: "Parse Nodes Connected to Existing VPC Domains"
+  set_fact: vpc_domain_nodes="{{ vpc_query_result |  json_query(\"current[*].fabricExplicitGEp.children[*].fabricNodePEp.attributes.id\") | flatten}}"
+
+- name: END PLAY if Destination Nodes Participating in a VPC Pair
+  meta: end_play
+  when: (aci_dest_leaf_list[0] in vpc_domain_nodes) or (aci_dest_leaf_list[1] in vpc_domain_nodes)
+
+- name: "Determine VPC Domain for Destination switch pair"
+  set_fact: dest_pair_vpcdomain="{{free_vpc_domains | difference(vpc_domains) | first}}"
+
+- name: "Query Access Port selectors source node1"
+  cisco.aci.aci_access_port_to_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile:  "Leaf{{ aci_source_leaf_list[0] }}"
+    state: query
+  delegate_to: localhost
+  register: hPortS_query_result
+
+- name: "Query Access Port selectors source node2"
+  cisco.aci.aci_access_port_to_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile:  "Leaf{{ aci_source_leaf_list[1] }}"
+    state: query
+  delegate_to: localhost
+  register: hPortS_query2_result
+
+- name: "Parse Node 1 AccessPort Selector Data"
+  set_fact:
+    accessport_node1_name: "{{hPortS_query_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.attributes.name\") | flatten}}"
+    accessport_node1_fports: "{{hPortS_query_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraPortBlk.attributes.fromPort\") | first }}"
+    accessport_node1_tports: "{{hPortS_query_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraPortBlk.attributes.toPort\") | first }}"
+    accessport_node1_policy: "{{hPortS_query_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraRsAccBaseGrp.attributes.tDn\") | first | replace('uni/infra/funcprof/accportgrp-','') | replace('uni/infra/funcprof/accbundle-','') }}"
+
+- name: "Ready Node1 AccessPort Selector Data for Destination"
+  set_fact:
+    accessport_node1_list: "{{ accessport_node1_list | default([]) + [dict(name=item[0], fport=item[1], tport=item[2], policy=item[3][0])] }}"
+  loop: "{{ accessport_node1_name | zip_longest(accessport_node1_fports, accessport_node1_tports, accessport_node1_policy, fillvalue='X') }}"
+
+- name: "Parse Node 2 AccessPort Selector Data"
+  set_fact:
+    accessport_node2_name: "{{hPortS_query2_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.attributes.name\") | flatten}}"
+    accessport_node2_fports: "{{hPortS_query2_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraPortBlk.attributes.fromPort\") | first }}"
+    accessport_node2_tports: "{{hPortS_query2_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraPortBlk.attributes.toPort\") | first }}"
+    accessport_node2_policy: "{{hPortS_query2_result | json_query(\"current[*].infraAccPortP.children[*].infraHPortS.children[*].infraRsAccBaseGrp.attributes.tDn\") | first | replace('uni/infra/funcprof/accportgrp-','') | replace('uni/infra/funcprof/accbundle-','') }}"
+
+- name: "Ready Node2 AccessPort Selector Data for Destination"
+  set_fact:
+    accessport_node2_list: "{{ accessport_node2_list | default([]) + [dict(name=item[0], fport=item[1], tport=item[2], policy=item[3][0])] }}"
+  loop: "{{ accessport_node2_name | zip_longest(accessport_node2_fports, accessport_node2_tports, accessport_node2_policy, fillvalue='X') }}"
+
+#################### Done with all gathering and prep of Data #####################
+#################### Create Snapshot Prior to Execution of Changes #####################
+- name: Create a Snapshot
+  cisco.aci.aci_config_snapshot:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    state: present
+    export_policy: config_backup
+    max_count: 10
+    description: "Ansible Generated Snapshot Prior to Fabric Modification Creating Leaves{{aci_dest_leaf_list[0]}} and {{aci_dest_leaf_list[1]}}."
+  delegate_to: localhost
+
+#################### All the Create Items Below #####################
+- name: "Add VPC Protection Group"
+  cisco.aci.aci_switch_policy_vpc_protection_group:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    protection_group: "vpcGrp-Leaf{{ aci_dest_leaf_list[0] }}-Leaf{{ aci_dest_leaf_list[1] }}"
+    protection_group_id: "{{ dest_pair_vpcdomain | int }}"
+    switch_1_id: "{{ aci_dest_leaf_list[0] | int }}"
+    switch_2_id: "{{ aci_dest_leaf_list[1] | int }}"
+    state: present
+  delegate_to: localhost
+  register: vpc_create_result
+
+- name: "Create Switch Leaf Policy Destination Node1"
+  cisco.aci.aci_switch_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[0] }}"
+    state: present
+  delegate_to: localhost
+  register: nodeP_create1_result
+
+- name: "Create Switch Leaf Policy Destination Node2"
+  cisco.aci.aci_switch_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[1] }}"
+    state: present
+  delegate_to: localhost
+  register: nodeP_create2_result
+
+- name: "Bind leaf selectors to switch policy destination node1"
+  cisco.aci.aci_switch_leaf_selector:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[0] }}"
+    leaf: "ls-Leaf{{ aci_dest_leaf_list[0] }}"
+    leaf_node_blk: "{{ aci_dest_leaf_list[0] }}"
+    from: "{{ aci_dest_leaf_list[0] | int }}"
+    to: "{{ aci_dest_leaf_list[0] | int }}"
+    state: present
+  delegate_to: localhost
+  register: leafS_create1_result
+
+- name: "Bind leaf selectors to switch policy destination node2"
+  cisco.aci.aci_switch_leaf_selector:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[1] }}"
+    leaf: "ls-Leaf{{ aci_dest_leaf_list[1] }}"
+    leaf_node_blk: "{{ aci_dest_leaf_list[1] }}"
+    from: "{{ aci_dest_leaf_list[1] | int }}"
+    to: "{{ aci_dest_leaf_list[1] | int }}"
+    state: present
+  delegate_to: localhost
+
+- name: "Create Interface selectors destination node1"
+  cisco.aci.aci_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile:  "is-Leaf{{ aci_dest_leaf_list[0] }}"
+    state: present
+  delegate_to: localhost
+
+- name: "Create Interface selectors destination node2"
+  cisco.aci.aci_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile:  "is-Leaf{{ aci_dest_leaf_list[1] }}"
+    state: present
+  delegate_to: localhost
+
+- name: "Bind interface selector to switch policy destination node1"
+  cisco.aci.aci_interface_selector_to_switch_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[0] }}"
+    interface_selector: "is-Leaf{{ aci_dest_leaf_list[0] }}"
+    state: present
+  delegate_to: localhost
+
+- name: "Bind Interface selector to switch policy destination node2"
+  cisco.aci.aci_interface_selector_to_switch_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    leaf_profile: "lsp-Leaf{{ aci_dest_leaf_list[1] }}"
+    interface_selector: "is-Leaf{{ aci_dest_leaf_list[1] }}"
+    state: present
+  delegate_to: localhost
+
+- name: "Bind access selector to interface selector Node 1"
+  cisco.aci.aci_access_port_to_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile: "is-Leaf{{ aci_dest_leaf_list[0] }}"
+    access_port_selector: "{{item.0.name}}"
+    port_blk: "portblk-block{{lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1) | int + 1}}"
+    from_port: "{{item.0.fport[lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1)]}}"
+    to_port: "{{item.0.tport[lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1)]}}"
+    policy_group: "{{item.0.policy}}"
+    state: present
+  delegate_to: localhost
+  loop: "{{accessport_node1_list | subelements('fport')}}"
+
+- name: "Bind access selector to interface selector Node 2"
+  cisco.aci.aci_access_port_to_interface_policy_leaf_profile:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    interface_profile: "is-Leaf{{ aci_dest_leaf_list[1] }}"
+    access_port_selector: "{{item.0.name}}"
+    port_blk: "portblk-block{{lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1) | int + 1}}"
+    from_port: "{{item.0.fport[lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1)]}}"
+    to_port: "{{item.0.tport[lookup('ansible.utils.index_of', item.0.fport, 'eq', item.1)]}}"
+    policy_group: "{{item.0.policy}}"
+    state: present
+  delegate_to: localhost
+  loop: "{{accessport_node2_list | subelements('fport')}}"

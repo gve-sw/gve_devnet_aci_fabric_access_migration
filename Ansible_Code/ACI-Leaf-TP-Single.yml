@@ -1,0 +1,87 @@
+---
+#- name: "Gather Tenants"
+#  cisco.aci.aci_tenant:
+#    host: "{{aci_host}}"
+#    username: "{{aci_username}}"
+#    password: "{{aci_password}}"
+#    validate_certs: no
+#    state: query
+#  delegate_to: localhost
+#  register: tenant_query_result
+#
+#- name: "Generate List of Curent Tenants"
+#  set_fact: tenantList="{{tenant_query_result | json_query('current[*].fvTenant.attributes.name')}}"
+#
+#- name: Query all EPGs
+#  cisco.aci.aci_epg:
+#    host: "{{aci_host}}"
+#    username: "{{aci_username}}"
+#    password: "{{aci_password}}"
+#    validate_certs: no
+#    state: query
+#  delegate_to: localhost
+#  register: ePG_query_result
+#
+#- name: "List of EPGs (Full DN)"
+#  #set_fact: ePGList="{{ePG_query_result | json_query('current[*].fvAEPg.attributes.dn')}}"
+
+- name: Get Node 1 EPG Static Path Information For all Tenants
+  cisco.aci.aci_rest:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    method: get
+    path: '/api/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn, "/paths-{{aci_source_leaf_list[0]}}")'
+  delegate_to: localhost
+  register: epg_path_query_result
+
+#- name: Debug Output of Parsing Destination EPG Static Path Information
+#  debug:
+#    msg:
+#      - "Tenant: {{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/tn-(.+?)\/(.*)', '\\2')}}"
+#      - "AP: {{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/ap-(.+?)\/(.*)', '\\2')}}"
+#      - "EPG: {{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/epg-(.+?)\/(.*)', '\\2')}}"
+#      - "Encap_ID: {{item.fvRsPathAtt.attributes.encap | replace('vlan-','')}}"
+#      - "Immediacy: {{item.fvRsPathAtt.attributes.instrImedcy}}"
+#      - "Interface_Mode: {{item.fvRsPathAtt.attributes.mode}}"
+#      - "Interface Type: {{item.fvRsPathAtt.attributes.dn | regex_replace('.*?pathep-\\[(.*?)\\].*', '\\1') | regex_replace('^(?!eth.*$).*', 'port_channel') | regex_replace('^eth.*', 'switch_port') }}"
+#      - "Pod_ID: {{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/pod-(.+?)\/(.*)', '\\2')}}"
+#      - "Leafs: {{aci_dest_leaf_list[0]}}"
+#      - "interface: {{item.fvRsPathAtt.attributes.dn | regex_replace('.*?pathep-\\[(.*?)\\].*', '\\1') | replace('eth','')}}"
+#  loop: "{{epg_path_query_result.imdata}}"
+
+#################### Done with all gathering and prep of Data #####################
+#################### Create Snapshot Prior to Execution of Changes #####################
+- name: Create a Snapshot
+  cisco.aci.aci_config_snapshot:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    state: present
+    export_policy: config_backup
+    max_count: 10
+    description: "Ansible Generated Snapshot Prior to Tenant Static Path Modification for Leaf{{aci_dest_leaf_list[0]}}."
+  delegate_to: localhost
+
+- name: Deploy Destination Node 1 EPG Static Path Information For all Tenants
+  cisco.aci.aci_static_binding_to_epg:
+    host: "{{aci_host}}"
+    username: "{{aci_username}}"
+    password: "{{aci_password}}"
+    validate_certs: no
+    tenant: "{{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/tn-(.+?)\/(.*)', '\\2')}}"
+    ap: "{{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/ap-(.+?)\/(.*)', '\\2')}}"
+    epg: "{{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/epg-(.+?)\/(.*)', '\\2')}}"
+    encap_id: "{{item.fvRsPathAtt.attributes.encap | replace('vlan-','') | int}}"
+    deploy_immediacy: "{{item.fvRsPathAtt.attributes.instrImedcy}}"
+    interface_mode: "{{item.fvRsPathAtt.attributes.mode}}"
+    interface_type: "{{item.fvRsPathAtt.attributes.dn | regex_replace('.*?pathep-\\[(.*?)\\].*', '\\1') | regex_replace('^(?!eth.*$).*', 'port_channel') | regex_replace('^eth.*', 'switch_port') }}"
+    pod_id: "{{item.fvRsPathAtt.attributes.dn | regex_replace('(.+?)\/pod-(.+?)\/(.*)', '\\2') | int}}"
+    leafs: "{{aci_dest_leaf_list[0]}}"
+    interface: "{{item.fvRsPathAtt.attributes.dn | regex_replace('.*?pathep-\\[(.*?)\\].*', '\\1') | replace('eth','')}}"
+    state: present
+  ignore_errors: yes
+  delegate_to: localhost
+  loop: "{{epg_path_query_result.imdata}}"

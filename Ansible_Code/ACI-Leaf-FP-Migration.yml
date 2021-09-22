@@ -1,0 +1,88 @@
+---
+# ACI Leaf Copy Routine. This playbook will input a source leaf (or comma
+# seperated pair) as well as a destination leaf (or comma seperated pair)
+# the code will then proceed to check the existence of the new desintation
+# node(s) that they have been registered into the fabric. Once validated the
+# playbook will create needed Fabric Access policies and copy th access selector
+# data from the source leafs into the destination leafs. The access selector
+# data is copied 1:1. This works with PC and VPC policies as the new leaf
+# switches are in a new VPC protection domain or stand alone.
+# VERY IMPORTANT!!!!!     This playbook is built for an ACI fabric that was
+# configured with 2 switch profiles and a single interface slector per switch
+# profile (no combined VPC SP or IS) so please take into account any additional
+# steps you may need based on your specific ACI configuration. 
+#
+# Example Execution of this playbook:
+# ansible-playbook -i "10.94.164.69," ACI-Leaf-FP-Migration.yml --extra-vars '{"runtime_user":"aciuser,"runtime_pass":"acipass","runtime_source":"105,106","runtime_dest":"1105,1106"}'
+# ^^^^^ Tested with Ansible v2.11.4
+#
+# FOLLOWING ARE DEPENDENCIES TO RUN THE PLAYBOOK
+# NEED ansible-galaxy collection install cisco.aci
+# NEED to install jmespath (pip3) note the python3 interpreter in global vars
+#
+# __author__ = "Joshua Proano"
+# __version__ = "0.21"
+# __date__ = "2021-9-14"
+# __email__ = "jproano@cisco.com"
+# __status__ = "Alpha"
+# Note: Use at your own risk! Use with a SIM before the real thing. Take
+# snapshots and validate desired behavior.
+#
+- name: Leaf Fabric Data Migration
+  # Look for hosts in the [aci] container of the inventory file
+  hosts: all
+  # Use the local Ansible system
+  connection: local
+  # Dont bother with fact computation about remote entities wont need that for the simple plays being run
+  gather_facts: no
+
+  # Use Username and privatekey provided at runtime combined with the hostname list to run in the task
+  # there are alot of ways to pass username and password creds and hosts.
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    aci_username: "{{ runtime_user }}" # ACI Username
+    aci_password: "{{ runtime_pass }}" # ACI Password
+    aci_host: "{{ inventory_hostname }}"
+    aci_source_leaf: "{{ runtime_source }}" # Source Nodes Ex. "101" or "103,104"
+    aci_dest_leaf: "{{ runtime_dest }}" # Destination Nodes Ex. "1101" or "1103,1104" should match the qty of source nodes
+    aci_source_leaf_list: ""
+    aci_dest_leaf_list: ""
+    aci_migration_type: "invalid"
+    nodequery: ""
+    free_vpc_domains: ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","53","54","55","56","57","58","59","60"]
+
+  # Showing in a single rest call how several of the tenant, VRF and underlying network elements can all be created at once.
+  tasks:
+   - name: Pre-Run Checks
+     block:
+       # Checking to be sure there is a 1:1 source, destination leaf ID.
+       - name: Source / Dest Leaf Logic Check
+         set_fact:
+          aci_source_leaf_list: "{{ aci_source_leaf.split(',') }}"
+          aci_dest_leaf_list: "{{ aci_dest_leaf.split(',') }}"
+
+       - name: Single Leaf source to single destination (no VPC)
+         set_fact:
+           aci_migration_type: "single_node"
+         when: (aci_source_leaf_list|length == 1) and (aci_dest_leaf_list|length == 1)
+
+       - name: Multiple leaf source to multiple leaf destination (VPC)
+         set_fact:
+           aci_migration_type: "vpc_pair"
+         when: (aci_source_leaf_list|length == 2) and (aci_dest_leaf_list|length == 2)
+
+   - block:
+      - name: "Invalid Input Check"
+        debug:
+          msg: "No valid node combinations to migrate, ending play"
+
+      - meta: end_play
+     when: aci_migration_type == "invalid"
+
+   - name: Single Leaf source to single destination (no VPC)
+     include_tasks: ACI-Leaf-FP-Single.yml
+     when: aci_migration_type == "single_node"
+
+   - name: Multiple leaf source to multiple leaf destination (VPC)
+     include_tasks: ACI-Leaf-FP-VPC.yml
+     when: aci_migration_type == "vpc_pair"
