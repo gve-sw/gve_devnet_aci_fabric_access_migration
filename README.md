@@ -17,7 +17,7 @@ There is no programmatic way to undo the new config. You would need to manually 
 
 ## Contacts
 * Andrew Dunsmoor (adunsmoo@cisco.com)
-* Josh Proano (proano@cisco.com)
+* Josh Proano (jproano@cisco.com)
 
 ## Solution Components
 * ACI: SDK and REST API
