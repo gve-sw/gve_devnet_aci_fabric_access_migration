@@ -1,4 +1,4 @@
-# ACI Fabric Access Polciy and Static Port Migration
+# ACI Fabric Access Policy and Static Port Migration
 An automation script that takes a source and destination node(s) in an ACI fabric and copies fabric access configuration (switch profiles, interface profiles, and VPC groups) from the source to the destination. This dramatically reduces migration time and error potential. 
 
 Two solutions are provided: A python script and a collection of Ansible Playbooks.  

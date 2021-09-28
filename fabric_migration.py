@@ -205,10 +205,6 @@ if __name__ == '__main__':
     md = cobra.mit.access.MoDirectory(ls)
     md.login()
 
-    # 1. Get the source and dest nodes, check they exist
-    source_nodes = []
-    dest_nodes = []
-    vpc = False
 
     # Process input file
     with open(spec_file, 'r') as fp:
@@ -216,6 +212,12 @@ if __name__ == '__main__':
         for line in Lines:
             line = line.replace(' ', '').replace('\n', '')
             if line and not line.startswith('#'): # Skip commented and blank lines
+
+                # 1. Get the source and dest nodes, check they exist
+                source_nodes = []
+                dest_nodes = []
+                vpc = False
+
                 line = line.split(',')
                 if len(line) == 2:
                     source_nodes.append(line[0])
