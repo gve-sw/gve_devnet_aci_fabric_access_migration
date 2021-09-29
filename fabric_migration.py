@@ -18,11 +18,14 @@ import json
 from cobra.mit.access import MoDirectory
 from cobra.mit.session import LoginSession
 import re
+import time
 
 from ACI_create_objects import *
 
 from config import *
 
+SAVED_TOKEN = ""
+SESSION_TIME = 0
 
 def find_values(id, json_repr):
     ''' Helper function to find all values associated with a particular key in a JSON tree including in the subtree.'''
@@ -44,23 +47,33 @@ def find_values(id, json_repr):
 
 # Get authentication token for APIC.
 # Auth Walkthrough https://blog.wimwauters.com/networkprogrammability/2020-03-19-aci_python_requests/
+# Tokens are valid for 300 seconds or 5 minutes
 def get_token():
     '''Function to retrieve the auth token required to authenticate further requests'''
 
-    url = f"{base}/aaaLogin.json"
-    payload = {
-        "aaaUser": {
-            "attributes": {
-                "name": user,
-                "pwd": password
+    global SESSION_TIME
+    global SAVED_TOKEN
+
+    if time.time() < SESSION_TIME + 300: # If token is still valid (under 5 mins since last token)
+        return SAVED_TOKEN
+
+    else:
+        url = f"{base}/aaaLogin.json"
+        payload = {
+            "aaaUser": {
+                "attributes": {
+                    "name": user,
+                    "pwd": password
+                }
             }
         }
-    }
-    headers = {'Content-Type': 'text/plain'}
-    requests.packages.urllib3.disable_warnings()
-    response = requests.request("POST", url, headers=headers, json=payload, verify=False)
-    # print(response.json())
-    return response.json()['imdata'][0]['aaaLogin']['attributes']['token']
+        headers = {'Content-Type': 'text/plain'}
+        requests.packages.urllib3.disable_warnings()
+        response = requests.request("POST", url, headers=headers, json=payload, verify=False)
+        # print(response.json())
+        SAVED_TOKEN = response.json()['imdata'][0]['aaaLogin']['attributes']['token']
+        SESSION_TIME = time.time()
+        return SAVED_TOKEN
 
 
 def save_aci_config_snapshot(description="API Generated Snapshot"):

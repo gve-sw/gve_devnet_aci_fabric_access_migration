@@ -91,6 +91,7 @@ base = apic+'/api'
 spec_file = "MigrationTargets.txt"  # File to specify targets
 
 # Specify your desired naming convention here. Node ID will be appended automatically. 
+vpc_group_prefix = "VPC_ExGrp_"
 switch_profile_prefix = "SwPro_"       
 interface_profile_prefix = "IntProf_"
 switch_selector_prefix = "SwSel_"
