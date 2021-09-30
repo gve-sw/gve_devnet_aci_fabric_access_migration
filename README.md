@@ -75,7 +75,11 @@ ACI's Cobra SDK is also required. The version used is included and can be instal
 
 "pip install acimodel-4.2_3h-py2.py3-none-any.whl"
 
-More information on the ACI SDK can be found here: https://developer.cisco.com/docs/aci/#!cobra-sdk-downloads/download-cobra-sdk-files 
+More information on the ACI SDK can be found here: https://developer.cisco.com/docs/aci/#!cobra-sdk-downloads/download-cobra-sdk-files
+
+**PLEASE NOTE: If you have issues with the acimodel installation, ensure you have updated pip3. This has resolved the issue in the past. 
+
+"pip3 install --upgrade pip" 
 
 A config.py file must also be generated and completed. The required variables are as follows:
 

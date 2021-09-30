@@ -50,11 +50,11 @@ def find_values(id, json_repr):
 # Tokens are valid for 300 seconds or 5 minutes
 def get_token():
     '''Function to retrieve the auth token required to authenticate further requests'''
-
+    time.sleep(1)
     global SESSION_TIME
     global SAVED_TOKEN
 
-    if time.time() < SESSION_TIME + 300: # If token is still valid (under 5 mins since last token)
+    if time.time() < (SESSION_TIME + 300): # If token is still valid (under 5 mins since last token)
         return SAVED_TOKEN
 
     else:
