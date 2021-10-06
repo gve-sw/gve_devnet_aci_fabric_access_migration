@@ -32,7 +32,7 @@
     password: "{{aci_password}}"
     validate_certs: no
     method: get
-    path: '/api/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn, "/paths-{{aci_source_leaf_list[0]}}")'
+    path: '/api/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn,%20"/paths-{{aci_source_leaf_list[0]}}")'
   delegate_to: localhost
   register: epg_path_query_result
 

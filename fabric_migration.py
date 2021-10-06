@@ -13,11 +13,9 @@
 #
 
 import requests
-import pprint
 import json
 from cobra.mit.access import MoDirectory
 from cobra.mit.session import LoginSession
-import re
 import time
 
 from ACI_create_objects import *
@@ -70,10 +68,17 @@ def get_token():
         headers = {'Content-Type': 'text/plain'}
         requests.packages.urllib3.disable_warnings()
         response = requests.request("POST", url, headers=headers, json=payload, verify=False)
+        if response.status_code == 200:
+            SAVED_TOKEN = response.json()['imdata'][0]['aaaLogin']['attributes']['token']
+            SESSION_TIME = time.time()
+            return SAVED_TOKEN
+        else:
+            print('ERROR during Authentication! Token could not be retrieved. Please check configured user+pass')
+            print('Received response was' + response.text)
+            return -1
         # print(response.json())
-        SAVED_TOKEN = response.json()['imdata'][0]['aaaLogin']['attributes']['token']
-        SESSION_TIME = time.time()
-        return SAVED_TOKEN
+
+
 
 
 def save_aci_config_snapshot(description="API Generated Snapshot"):
@@ -201,12 +206,33 @@ def get_static_paths(source_leaf_list):
     # Get VPC Groups
     for path in source_leaf_list:
         path_url = f"/paths-{path}"
+        vpc_path_url = f"/protpaths-{path}"
+        url = f'{base}/class/fvRsPathAtt.json?query-target-filter=or(wcard(fvRsPathAtt.tDn,"{path_url}"),wcard(fvRsPathAtt.tDn,"{vpc_path_url}"))'
+        # url = f'{base}/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn,"{path_url}")'
+        requests.packages.urllib3.disable_warnings()
+        response = requests.get(url, headers=headers, verify=False)
+        responses.append(response.json())
+
+    return responses
+
+def get_vpc_static_paths(source_leaf_list):
+    token = get_token()
+    headers = {
+        "Cookie": f"APIC-Cookie={token}",
+    }
+
+    responses = []
+    # Get VPC Groups
+    for path in source_leaf_list:
+        path_url = f"/protpaths-{path}"
         url = f'{base}/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn,"{path_url}")'
         requests.packages.urllib3.disable_warnings()
         response = requests.get(url, headers=headers, verify=False)
         responses.append(response.json())
 
     return responses
+
+
 
 
 if __name__ == '__main__':
@@ -340,7 +366,7 @@ if __name__ == '__main__':
                     overlay_dest_nodes.append(f'{dest_nodes[0]}-{dest_nodes[1]}')
 
                 static_bindings_responses = get_static_paths(source_nodes)
-                # print(static_bindings_responses)
+                # print(json.dumps(static_bindings_responses))
 
                 new_path_dicts = []
                 # Create equivalent path for destination nodes
@@ -348,9 +374,9 @@ if __name__ == '__main__':
                     for path in resp['imdata']:
                         # print(path['fvRsPathAtt']['attributes']['dn'])
                         new_path = json.dumps(path.copy())
-                        for j in range(len(overlay_dest_nodes)):
-                            # Need to replace references to the old path with the new one.
-                            new_path = new_path.replace(f'paths-{overlay_source_nodes[j]}', f'paths-{overlay_dest_nodes[j]}')
+                        for j in range(len(overlay_dest_nodes)): # Need to replace references to the old path with the new one (if the reference exists)
+                            new_path = new_path.replace(f'/paths-{overlay_source_nodes[j]}/', f'/paths-{overlay_dest_nodes[j]}/') # single node uses paths
+                            new_path = new_path.replace(f'/protpaths-{overlay_source_nodes[j]}/', f'/protpaths-{overlay_dest_nodes[j]}/') # VPC uses protpaths
                         new_path_dicts.append(json.loads(new_path))
                 create_static_paths(new_path_dicts)
                 print(f'Fabric Access Migration Complete for source nodes {source_nodes} and destination nodes {dest_nodes}')

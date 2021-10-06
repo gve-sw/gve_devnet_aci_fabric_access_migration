@@ -168,8 +168,7 @@ def create_vpc_group(name, id, nodes=[], podId='1'):
 
 def create_static_paths(path_dicts):
 
-    limit_keys = ['annotation', 'descr', 'encap', 'instrImedcy', 'mode', 'primaryEncap', 'tDn', 'tDn', 'fexId',
-                  'fromCard', 'fromPort', 'toCard', 'toPort']
+    limit_keys = ['annotation', 'descr', 'encap', 'instrImedcy', 'mode', 'primaryEncap', 'tDn']
 
     # log into an APIC and create a directory object
     ls = cobra.mit.session.LoginSession(apic, user, password)
@@ -199,11 +198,13 @@ def create_static_paths(path_dicts):
         c.addMo(topMo)
         try:
             md.commit(c)
+            # print(f"Created Static Path {path_attributes['dn']}")
         except Exception as e:
-            print(e)
-            md.logout()
-            return
-    print(f"Created Static Paths: {str(path_names)}")
+            print(f"ILLEGAL CONFIGURATION ERROR: {e}")
+            # md.logout()
+
+    print(f"Successfully Created Static Paths:\n {str(path_names)}")
     md.logout()
+    return
 
 
