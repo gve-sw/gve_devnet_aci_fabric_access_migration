@@ -148,7 +148,7 @@ def get_leaf_switch_profiles():
     # Get Leaf Switch Profiles
     url = f"{base}/node/mo/uni/infra.json?query-target=children&target-subtree-class=infraNodeP&query-target-filter" \
           f"=not(wcard(infraNodeP.dn,%22__ui_%22))&rsp-subtree=full&rsp-subtree-class=infraLeafS,infraRsAccPortP," \
-          f"infraRsAccCardP,infraNodeBlk,infraRsAccNodePGrp&order-by=infraNodeP.name" #|asc&page=0&page-size=15 "
+          f"infraRsAccCardP,infraNodeBlk,infraRsAccNodePGrp&order-by=infraNodeP.name"
 
     headers = {
         "Cookie": f"APIC-Cookie={token}",
@@ -167,7 +167,7 @@ def get_leaf_interface_profiles():
     url = f'{base}/node/mo/uni/infra.json?query-target=subtree&target-subtree-class=infraAccPortP&query-target-filter' \
           f'=not(wcard(infraAccPortP.dn,"__ui_"))&query-target=children&target-subtree-class=infraAccPortP&rsp' \
           f'-subtree=full&rsp-subtree-class=infraHPortS,infraPortBlk,infraRsAccBaseGrp,' \
-          f'infraSubPortBlk&order-by=infraAccPortP.name|asc&page=0&page-size=15 '
+          f'infraSubPortBlk&order-by=infraAccPortP.name'
 
 
     headers = {
@@ -208,7 +208,6 @@ def get_static_paths(source_leaf_list):
         path_url = f"/paths-{path}"
         vpc_path_url = f"/protpaths-{path}"
         url = f'{base}/class/fvRsPathAtt.json?query-target-filter=or(wcard(fvRsPathAtt.tDn,"{path_url}"),wcard(fvRsPathAtt.tDn,"{vpc_path_url}"))'
-        # url = f'{base}/class/fvRsPathAtt.json?query-target-filter=wcard(fvRsPathAtt.tDn,"{path_url}")'
         requests.packages.urllib3.disable_warnings()
         response = requests.get(url, headers=headers, verify=False)
         responses.append(response.json())
@@ -290,6 +289,8 @@ if __name__ == '__main__':
 
                 # 2a. -----Switch profiles -------
                 switch_profiles = get_leaf_switch_profiles()
+                all_interface_profiles = get_leaf_interface_profiles()
+
                 # Create Switch and Interface Profile for each Destination node
                 for i in range(len(dest_nodes)):
                     # Initialize a list to store json data of destination profiles if they exist
@@ -322,9 +323,10 @@ if __name__ == '__main__':
                             if 'infraRsAccPortP' in child:
                                 source_int_profiles_tDns.append(child['infraRsAccPortP']['attributes']['tDn'])
 
-                    all_interface_profiles = get_leaf_interface_profiles()
+                    # all_interface_profiles = get_leaf_interface_profiles()
                     int_profiles = []
                     for profile in all_interface_profiles['imdata']:
+                        # print(profile['infraAccPortP']['attributes']['dn'])
                         if profile['infraAccPortP']['attributes']['dn'] in source_int_profiles_tDns:
                             int_profiles.append(profile)
 

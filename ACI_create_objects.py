@@ -159,9 +159,8 @@ def create_vpc_group(name, id, nodes=[], podId='1'):
     try:
         md.commit(c)
     except Exception as e:
-        print(e)
-        md.logout()
-        return
+        print(f"ILLEGAL CONFIGURATION ERROR: {e}")
+        # md.logout()
     print(f"Created VPC Explicit Group {name} with ID {id} in pod {podId}")
     md.logout()
 
